@@ -3,23 +3,18 @@ import pandas as pd
 import numpy as np
 import joblib
 import plotly.graph_objects as go
-import time
-
-# Integración con la API oficial de la NBA
-from nba_api.stats.static import players
-from nba_api.stats.endpoints import leaguedashplayerstats
 
 # -----------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE LA PÁGINA
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="BPredicts - Real-Time NBA Data Engine",
+    page_title="BPredicts - NBA Analytics Platform",
     page_icon="🏀",
     layout="wide"
 )
 
 st.title("🏀 BPredicts — Live NBA Analytics Platform")
-st.caption("Conexión directa en tiempo real con la API oficial de la NBA & Inteligencia Artificial.")
+st.caption("Plataforma de predicción analítica de rendimiento e Inteligencia Artificial.")
 st.markdown("---")
 
 # -----------------------------------------------------------------------------
@@ -36,84 +31,18 @@ except Exception as e:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 3. EXTRACCIÓN CON HEADERS OPTIMIZADOS (Bypassing NBA API Blocks)
+# 3. CARGA INSTANTÁNEA DE BASE DE DATOS DE JUGADORES
 # -----------------------------------------------------------------------------
-HEADERS_NBA = {
-    'Host': 'stats.nba.com',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Referer': 'https://www.nba.com/',
-    'Origin': 'https://www.nba.com',
-    'Connection': 'keep-alive',
-}
+@st.cache_data
+def cargar_jugadores():
+    try:
+        df = pd.read_csv('nba_players.csv')
+        return df.sort_values(by='promedio_pts', ascending=False)
+    except Exception as e:
+        st.error(f"Error al cargar la base de datos de jugadores: {e}")
+        st.stop()
 
-@st.cache_data(ttl=10800)  # Caché de 3 horas
-def obtener_jugadores_activos_api():
-    intentos = 0
-    max_intentos = 2
-    
-    while intentos < max_intentos:
-        try:
-            # Obtener lista estática de jugadores activos
-            jugadores_todos = players.get_active_players()
-            df_activos = pd.DataFrame(jugadores_todos)
-
-            # Petición a leaguedashplayerstats enviando headers personalizados
-            endpoint = leaguedashplayerstats.LeagueDashPlayerStats(
-                season='2023-24',
-                headers=HEADERS_NBA,
-                timeout=15
-            )
-            stats_api = endpoint.get_data_frames()[0]
-
-            # Filtrar jugadores con participación mínima
-            stats_filtradas = stats_api[stats_api['GP'] >= 10].copy()
-            
-            stats_filtradas['minutos'] = (stats_filtradas['MIN'] / stats_filtradas['GP']).round(1)
-            stats_filtradas['intentos_tiro'] = (stats_filtradas['FGA'] / stats_filtradas['GP']).round(1)
-            stats_filtradas['tiros_libres'] = (stats_filtradas['FTA'] / stats_filtradas['GP']).round(1)
-            stats_filtradas['promedio_pts'] = (stats_filtradas['PTS'] / stats_filtradas['GP']).round(1)
-            stats_filtradas['efg_pct'] = stats_filtradas['EFG_PCT'].round(3)
-            stats_filtradas['uso_balon'] = (stats_filtradas['PCT_USG'] * 100).round(1)
-
-            # Unir datos
-            df_completo = pd.merge(
-                stats_filtradas,
-                df_activos[['id', 'full_name']],
-                left_on='PLAYER_ID',
-                right_on='id',
-                how='inner'
-            )
-
-            df_final = df_completo[[
-                'id', 'full_name', 'TEAM_ABBREVIATION', 'promedio_pts',
-                'minutos', 'intentos_tiro', 'efg_pct', 'tiros_libres', 'uso_balon'
-            ]].sort_values(by='promedio_pts', ascending=False)
-
-            return df_final, None
-
-        except Exception as error:
-            intentos += 1
-            time.sleep(1)
-            if intentos >= max_intentos:
-                # Datos de contingencia amplia
-                datos_respaldo = pd.DataFrame([
-                    {"id": 1629029, "full_name": "Luka Dončić", "TEAM_ABBREVIATION": "DAL", "promedio_pts": 33.9, "minutos": 37.5, "intentos_tiro": 23.2, "efg_pct": 0.565, "tiros_libres": 8.8, "uso_balon": 35.5},
-                    {"id": 201939, "full_name": "Stephen Curry", "TEAM_ABBREVIATION": "GSW", "promedio_pts": 26.4, "minutos": 32.7, "intentos_tiro": 19.5, "efg_pct": 0.582, "tiros_libres": 5.1, "uso_balon": 30.1},
-                    {"id": 1628983, "full_name": "Shai Gilgeous-Alexander", "TEAM_ABBREVIATION": "OKC", "promedio_pts": 30.1, "minutos": 34.2, "intentos_tiro": 19.8, "efg_pct": 0.568, "tiros_libres": 8.7, "uso_balon": 32.8},
-                    {"id": 1628369, "full_name": "Jayson Tatum", "TEAM_ABBREVIATION": "BOS", "promedio_pts": 26.9, "minutos": 35.8, "intentos_tiro": 19.3, "efg_pct": 0.550, "tiros_libres": 6.7, "uso_balon": 29.8},
-                    {"id": 203999, "full_name": "Nikola Jokić", "TEAM_ABBREVIATION": "DEN", "promedio_pts": 26.4, "minutos": 34.6, "intentos_tiro": 15.7, "efg_pct": 0.630, "tiros_libres": 5.5, "uso_balon": 28.2},
-                    {"id": 1630162, "full_name": "Anthony Edwards", "TEAM_ABBREVIATION": "MIN", "promedio_pts": 25.9, "minutos": 35.1, "intentos_tiro": 19.8, "efg_pct": 0.542, "tiros_libres": 6.4, "uso_balon": 32.3},
-                    {"id": 203507, "full_name": "Giannis Antetokounmpo", "TEAM_ABBREVIATION": "MIL", "promedio_pts": 30.4, "minutos": 35.2, "intentos_tiro": 18.8, "efg_pct": 0.616, "tiros_libres": 10.7, "uso_balon": 33.0}
-                ])
-                return datos_respaldo, str(error)
-
-with st.spinner("Conectando con la API oficial de la NBA..."):
-    df_jugadores, error_api = obtener_jugadores_activos_api()
-
-if error_api:
-    st.warning("⚠️ Alta latencia detectada en los servidores de la NBA. Mostrando base de datos de contingencia optimizada.")
+df_jugadores = cargar_jugadores()
 
 defensas_nba = {
     'Boston Celtics (Top 1 Def)': 1,
@@ -157,7 +86,7 @@ linea_casas = st.sidebar.number_input("Línea Over/Under Puntos:", value=float(r
 col_foto, col_info = st.columns([1, 3])
 
 with col_foto:
-    url_foto = f"https://cdn.nba.com/headshots/nba/latest/260x190/{datos_jugador['id']}.png"
+    url_foto = f"https://cdn.nba.com/headshots/nba/latest/260x190/{int(datos_jugador['id'])}.png"
     st.image(url_foto, width=180)
 
 with col_info:
