@@ -3,23 +3,18 @@ import pandas as pd
 import numpy as np
 import joblib
 import plotly.graph_objects as go
-import time
-
-# Integración con la API oficial de la NBA
-from nba_api.stats.static import players
-from nba_api.stats.endpoints import leaguedashplayerstats
 
 # -----------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE LA PÁGINA
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="BPredicts - Real-Time NBA Data Engine",
+    page_title="BPredicts - NBA Analytics Platform",
     page_icon="🏀",
     layout="wide"
 )
 
 st.title("🏀 BPredicts — Live NBA Analytics Platform")
-st.caption("Conexión directa en tiempo real con la API oficial de la NBA & Inteligencia Artificial.")
+st.caption("Plataforma de predicción analítica de rendimiento e Inteligencia Artificial.")
 st.markdown("---")
 
 # -----------------------------------------------------------------------------
@@ -36,35 +31,33 @@ except Exception as e:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 3. EXTRACCIÓN EN VIVO DE LA TEMPORADA ACTUAL DE LA NBA
+# 3. CARGA DE DATOS ROBUSTA E INMUNE A BLOQUEOS
 # -----------------------------------------------------------------------------
 HEADERS_NBA = {
     'Host': 'stats.nba.com',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
     'Referer': 'https://www.nba.com/',
-    'Origin': 'https://www.nba.com',
     'Connection': 'keep-alive',
 }
 
-@st.cache_data(ttl=10800)  # Mantiene las estadísticas guardadas por 3 horas para evitar bloqueos
-def obtener_jugadores_en_vivo():
+@st.cache_data(ttl=21600)  # Revisa actualizaciones en segundo plano cada 6 horas
+def cargar_base_datos_jugadores():
+    # Intenta actualización silenciosa desde la API oficial
     try:
-        # Obtener lista de todos los jugadores en activo
+        from nba_api.stats.static import players
+        from nba_api.stats.endpoints import leaguedashplayerstats
+
         jugadores_todos = players.get_active_players()
         df_activos = pd.DataFrame(jugadores_todos)
 
-        # Consultar métricas de la temporada actual sin especificar 'season' (usa la actual por defecto)
         endpoint = leaguedashplayerstats.LeagueDashPlayerStats(
             headers=HEADERS_NBA,
-            timeout=30
+            timeout=5
         )
         stats_api = endpoint.get_data_frames()[0]
 
-        # Filtrar jugadores con al menos 5 partidos jugados esta temporada
         stats_filtradas = stats_api[stats_api['GP'] >= 5].copy()
-        
         stats_filtradas['minutos'] = (stats_filtradas['MIN'] / stats_filtradas['GP']).round(1)
         stats_filtradas['intentos_tiro'] = (stats_filtradas['FGA'] / stats_filtradas['GP']).round(1)
         stats_filtradas['tiros_libres'] = (stats_filtradas['FTA'] / stats_filtradas['GP']).round(1)
@@ -72,7 +65,6 @@ def obtener_jugadores_en_vivo():
         stats_filtradas['efg_pct'] = stats_filtradas['EFG_PCT'].round(3)
         stats_filtradas['uso_balon'] = (stats_filtradas['PCT_USG'] * 100).round(1)
 
-        # Combinar los datos con los IDs de los jugadores para obtener sus fotos oficiales
         df_completo = pd.merge(
             stats_filtradas,
             df_activos[['id', 'full_name']],
@@ -86,21 +78,13 @@ def obtener_jugadores_en_vivo():
             'minutos', 'intentos_tiro', 'efg_pct', 'tiros_libres', 'uso_balon'
         ]].sort_values(by='promedio_pts', ascending=False)
 
-        return df_final, False
-    except Exception as error:
-        # Fallback local desde el CSV si la API no responde
-        try:
-            df_csv = pd.read_csv('nba_players.csv')
-            return df_csv.sort_values(by='promedio_pts', ascending=False), True
-        except:
-            st.error(f"Error crítico al conectar con la API de la NBA y al cargar el respaldo CSV: {error}")
-            st.stop()
+        return df_final
+    except:
+        # Si la API bloquea la IP, responde instantáneamente con la base de datos local guardada
+        df_csv = pd.read_csv('nba_players.csv')
+        return df_csv.sort_values(by='promedio_pts', ascending=False)
 
-with st.spinner("Descargando estadísticas en tiempo real de la NBA..."):
-    df_jugadores, es_respaldo = obtener_jugadores_en_vivo()
-
-if es_respaldo:
-    st.warning("⚠️ Servidores de la NBA congestionados. Mostrando base de datos en almacenamiento local temporal.")
+df_jugadores = cargar_base_datos_jugadores()
 
 defensas_nba = {
     'Boston Celtics (Top 1 Def)': 1,
@@ -123,7 +107,7 @@ jugador_seleccionado = st.sidebar.selectbox("Escribe o selecciona un jugador:", 
 datos_jugador = df_jugadores[df_jugadores['full_name'] == jugador_seleccionado].iloc[0]
 
 st.sidebar.markdown("---")
-st.sidebar.header("📊 Contexto del Partido")
+st.sidebar.header(" Contexto del Partido")
 
 rival_sel = st.sidebar.selectbox("Rival de hoy:", list(defensas_nba.keys()))
 rank_defensa = defensas_nba[rival_sel]
@@ -135,7 +119,7 @@ estado_fisico = st.sidebar.radio("Carga Física:", ["Descansado (1+ días)", "Ba
 es_b2b = 1 if "Back-to-Back" in estado_fisico else 0
 
 st.sidebar.markdown("---")
-st.sidebar.header("🎲 Mercado de Apuestas")
+st.sidebar.header(" Mercado de Apuestas")
 linea_casas = st.sidebar.number_input("Línea Over/Under Puntos:", value=float(round(datos_jugador['promedio_pts'])), step=0.5)
 
 # -----------------------------------------------------------------------------
@@ -160,7 +144,7 @@ st.markdown("---")
 # -----------------------------------------------------------------------------
 # 6. SIMULADOR CONTEXTUAL & PREDICCIÓN
 # -----------------------------------------------------------------------------
-st.subheader("⚙️ Simulador Contextual (Ajustes de Juego)")
+st.subheader(" Simulador Contextual (Ajustes de Juego)")
 
 col_adj1, col_adj2, col_adj3 = st.columns(3)
 
@@ -198,7 +182,7 @@ pts_predichos = modelo_ia.predict(entrada_modelo)[0] * factor_racha
 col_res1, col_res2 = st.columns([2, 2])
 
 with col_res1:
-    st.subheader("📊 Proyección del Modelo")
+    st.subheader(" Proyección del Modelo")
     
     col_p1, col_p2 = st.columns(2)
     col_p1.metric("Puntos Predichos", f"{pts_predichos:.1f} PTS", delta=f"{pts_predichos - datos_jugador['promedio_pts']:.1f} vs Promedio")
@@ -206,14 +190,14 @@ with col_res1:
     
     diferencia = pts_predichos - linea_casas
     if diferencia > 1.5:
-        st.success(f"🔥 **Sugerencia:** OVER ({linea_casas} Puntos) — Ventaja proyectada: +{diferencia:.1f} PTS.")
+        st.success(f" **Sugerencia:** OVER ({linea_casas} Puntos) — Ventaja proyectada: +{diferencia:.1f} PTS.")
     elif diferencia < -1.5:
-        st.error(f"❄️ **Sugerencia:** UNDER ({linea_casas} Puntos) — Ventaja proyectada: {diferencia:.1f} PTS.")
+        st.error(f" **Sugerencia:** UNDER ({linea_casas} Puntos) — Ventaja proyectada: {diferencia:.1f} PTS.")
     else:
-        st.warning(f"⚖️ **Sugerencia:** Línea neutral (Margen de diferencia: {diferencia:.1f} PTS).")
+        st.warning(f" **Sugerencia:** Línea neutral (Margen de diferencia: {diferencia:.1f} PTS).")
 
 with col_res2:
-    st.subheader("📈 Distribución de Probabilidad")
+    st.subheader(" Distribución de Probabilidad")
     
     puntos_simulados = np.random.normal(pts_predichos, 5.5, 5000)
     prob_over = (puntos_simulados > linea_casas).mean() * 100
