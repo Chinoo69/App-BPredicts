@@ -31,60 +31,14 @@ except Exception as e:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 3. CARGA DE DATOS ROBUSTA E INMUNE A BLOQUEOS
+# 3. CARGA DIRECTA Y RÁPIDA DE JUGADORES
 # -----------------------------------------------------------------------------
-HEADERS_NBA = {
-    'Host': 'stats.nba.com',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Referer': 'https://www.nba.com/',
-    'Connection': 'keep-alive',
-}
+@st.cache_data
+def cargar_jugadores():
+    df = pd.read_csv('nba_players.csv')
+    return df.sort_values(by='promedio_pts', ascending=False)
 
-@st.cache_data(ttl=21600)  # Revisa actualizaciones en segundo plano cada 6 horas
-def cargar_base_datos_jugadores():
-    # Intenta actualización silenciosa desde la API oficial
-    try:
-        from nba_api.stats.static import players
-        from nba_api.stats.endpoints import leaguedashplayerstats
-
-        jugadores_todos = players.get_active_players()
-        df_activos = pd.DataFrame(jugadores_todos)
-
-        endpoint = leaguedashplayerstats.LeagueDashPlayerStats(
-            headers=HEADERS_NBA,
-            timeout=5
-        )
-        stats_api = endpoint.get_data_frames()[0]
-
-        stats_filtradas = stats_api[stats_api['GP'] >= 5].copy()
-        stats_filtradas['minutos'] = (stats_filtradas['MIN'] / stats_filtradas['GP']).round(1)
-        stats_filtradas['intentos_tiro'] = (stats_filtradas['FGA'] / stats_filtradas['GP']).round(1)
-        stats_filtradas['tiros_libres'] = (stats_filtradas['FTA'] / stats_filtradas['GP']).round(1)
-        stats_filtradas['promedio_pts'] = (stats_filtradas['PTS'] / stats_filtradas['GP']).round(1)
-        stats_filtradas['efg_pct'] = stats_filtradas['EFG_PCT'].round(3)
-        stats_filtradas['uso_balon'] = (stats_filtradas['PCT_USG'] * 100).round(1)
-
-        df_completo = pd.merge(
-            stats_filtradas,
-            df_activos[['id', 'full_name']],
-            left_on='PLAYER_ID',
-            right_on='id',
-            how='inner'
-        )
-
-        df_final = df_completo[[
-            'id', 'full_name', 'TEAM_ABBREVIATION', 'promedio_pts',
-            'minutos', 'intentos_tiro', 'efg_pct', 'tiros_libres', 'uso_balon'
-        ]].sort_values(by='promedio_pts', ascending=False)
-
-        return df_final
-    except:
-        # Si la API bloquea la IP, responde instantáneamente con la base de datos local guardada
-        df_csv = pd.read_csv('nba_players.csv')
-        return df_csv.sort_values(by='promedio_pts', ascending=False)
-
-df_jugadores = cargar_base_datos_jugadores()
+df_jugadores = cargar_jugadores()
 
 defensas_nba = {
     'Boston Celtics (Top 1 Def)': 1,
@@ -107,7 +61,7 @@ jugador_seleccionado = st.sidebar.selectbox("Escribe o selecciona un jugador:", 
 datos_jugador = df_jugadores[df_jugadores['full_name'] == jugador_seleccionado].iloc[0]
 
 st.sidebar.markdown("---")
-st.sidebar.header(" Contexto del Partido")
+st.sidebar.header("📊 Contexto del Partido")
 
 rival_sel = st.sidebar.selectbox("Rival de hoy:", list(defensas_nba.keys()))
 rank_defensa = defensas_nba[rival_sel]
@@ -119,7 +73,7 @@ estado_fisico = st.sidebar.radio("Carga Física:", ["Descansado (1+ días)", "Ba
 es_b2b = 1 if "Back-to-Back" in estado_fisico else 0
 
 st.sidebar.markdown("---")
-st.sidebar.header(" Mercado de Apuestas")
+st.sidebar.header("🎲 Mercado de Apuestas")
 linea_casas = st.sidebar.number_input("Línea Over/Under Puntos:", value=float(round(datos_jugador['promedio_pts'])), step=0.5)
 
 # -----------------------------------------------------------------------------
@@ -144,7 +98,7 @@ st.markdown("---")
 # -----------------------------------------------------------------------------
 # 6. SIMULADOR CONTEXTUAL & PREDICCIÓN
 # -----------------------------------------------------------------------------
-st.subheader(" Simulador Contextual (Ajustes de Juego)")
+st.subheader("⚙️ Simulador Contextual (Ajustes de Juego)")
 
 col_adj1, col_adj2, col_adj3 = st.columns(3)
 
@@ -182,7 +136,7 @@ pts_predichos = modelo_ia.predict(entrada_modelo)[0] * factor_racha
 col_res1, col_res2 = st.columns([2, 2])
 
 with col_res1:
-    st.subheader(" Proyección del Modelo")
+    st.subheader("📊 Proyección del Modelo")
     
     col_p1, col_p2 = st.columns(2)
     col_p1.metric("Puntos Predichos", f"{pts_predichos:.1f} PTS", delta=f"{pts_predichos - datos_jugador['promedio_pts']:.1f} vs Promedio")
@@ -190,14 +144,14 @@ with col_res1:
     
     diferencia = pts_predichos - linea_casas
     if diferencia > 1.5:
-        st.success(f" **Sugerencia:** OVER ({linea_casas} Puntos) — Ventaja proyectada: +{diferencia:.1f} PTS.")
+        st.success(f"🔥 **Sugerencia:** OVER ({linea_casas} Puntos) — Ventaja proyectada: +{diferencia:.1f} PTS.")
     elif diferencia < -1.5:
-        st.error(f" **Sugerencia:** UNDER ({linea_casas} Puntos) — Ventaja proyectada: {diferencia:.1f} PTS.")
+        st.error(f"❄️ **Sugerencia:** UNDER ({linea_casas} Puntos) — Ventaja proyectada: {diferencia:.1f} PTS.")
     else:
-        st.warning(f" **Sugerencia:** Línea neutral (Margen de diferencia: {diferencia:.1f} PTS).")
+        st.warning(f"⚖️ **Sugerencia:** Línea neutral (Margen de diferencia: {diferencia:.1f} PTS).")
 
 with col_res2:
-    st.subheader(" Distribución de Probabilidad")
+    st.subheader("📈 Distribución de Probabilidad")
     
     puntos_simulados = np.random.normal(pts_predichos, 5.5, 5000)
     prob_over = (puntos_simulados > linea_casas).mean() * 100
